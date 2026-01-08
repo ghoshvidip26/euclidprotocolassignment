@@ -84,7 +84,7 @@ export function VoucherBalancePage() {
   const [globalError, setGlobalError] = useState<string | null>(null);
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
-
+  const time = lastUpdated.toLocaleTimeString();
   const fetchVoucherBalances = async (signal?: AbortSignal) => {
     try {
       await new Promise((resolve) => setTimeout(resolve, 800));
@@ -194,7 +194,7 @@ export function VoucherBalancePage() {
           </div>
           <div className="mt-4">
             <p className="text-sm text-gray-600 dark:text-neutral-400">
-              Last updated: {lastUpdated.toLocaleTimeString()}
+              Last updated: {time}
               <span className="ml-2 text-xs text-gray-500 dark:text-neutral-500">
                 (Auto-refresh every {AUTO_REFRESH_INTERVAL / 1000}s)
               </span>
