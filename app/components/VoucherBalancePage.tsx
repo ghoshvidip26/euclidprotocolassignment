@@ -7,7 +7,6 @@ import Balance from "./Balance";
 import SummaryCard from "./summary-card";
 
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
-const GQL_ENDPOINT = "https://testnet.api.euclidprotocol.com/graphql";
 
 const mockChainData = [
   {
@@ -88,17 +87,6 @@ export function VoucherBalancePage() {
   const fetchVoucherBalances = async (signal?: AbortSignal) => {
     try {
       await new Promise((resolve) => setTimeout(resolve, 800));
-
-      // TODO: Replace with actual GraphQL API call
-      // query GetVoucherBalances($userAddress: String!) {
-      //   userVoucherBalances(address: $userAddress) {
-      //     chain
-      //     status
-      //     tokens { symbol balance decimals usdValue }
-      //     errorMessage
-      //   }
-      // }
-
       setChainData(mockChainData);
       setGlobalError(null);
     } catch (error) {
