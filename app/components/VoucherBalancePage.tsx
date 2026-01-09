@@ -5,6 +5,11 @@ import { RefreshCw } from "lucide-react";
 import { ErrorAlert } from "./error";
 import Balance from "./Balance";
 import SummaryCard from "./summary-card";
+import {
+  getRouterState,
+  getEvmChains,
+  getUserBalancesOnNeuron,
+} from "../lib/euclidClient";
 
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
 
@@ -84,6 +89,26 @@ export function VoucherBalancePage() {
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const time = lastUpdated.toLocaleTimeString();
+
+  const func = async () => {
+    const [virtualBalanceAddress, evmChains] = await Promise.all([
+      getRouterState(),
+      getEvmChains(),
+    ]);
+
+    const NEURON_CONTRACT = virtualBalanceAddress;
+    console.log(NEURON_CONTRACT);
+
+    const res = await getUserBalancesOnNeuron({
+      neuronContractAddress: NEURON_CONTRACT, // 👈 MUST be euclid1...
+      userChainUid: "sepolia", // 👈 user lives on Arbitrum
+      walletAddress: "0xC52711c6091635B26F1046b1ac40325260B9c9Ec",
+    });
+
+    console.log(res);
+  };
+  func();
+
   const fetchVoucherBalances = async (signal?: AbortSignal) => {
     try {
       await new Promise((resolve) => setTimeout(resolve, 800));
