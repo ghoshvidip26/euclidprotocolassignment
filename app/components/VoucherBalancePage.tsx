@@ -10,6 +10,7 @@ import {
   getEvmChains,
   getUserBalancesOnNeuron,
 } from "../lib/euclidClient";
+import { useWallet } from "../context/WalletAddress";
 
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
 
@@ -89,7 +90,7 @@ export function VoucherBalancePage() {
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const time = lastUpdated.toLocaleTimeString();
-
+  const { accountData, connectWallet } = useWallet();
   const func = async () => {
     const [virtualBalanceAddress, evmChains] = await Promise.all([
       getRouterState(),
@@ -101,8 +102,8 @@ export function VoucherBalancePage() {
 
     const res = await getUserBalancesOnNeuron({
       neuronContractAddress: NEURON_CONTRACT, // 👈 MUST be euclid1...
-      userChainUid: "sepolia", // 👈 user lives on Arbitrum
-      walletAddress: "0xC52711c6091635B26F1046b1ac40325260B9c9Ec",
+      userChainUid: evmChains.filter((chain) => chain.chain_uid),
+      walletAddress: accountData.address!,
     });
 
     console.log(res);
@@ -204,6 +205,15 @@ export function VoucherBalancePage() {
               />
               {isLoading ? "Refreshing..." : "Refresh"}
             </button>
+
+            {!accountData.address && (
+              <button
+                onClick={connectWallet}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+              >
+                Connect Wallet
+              </button>
+            )}
           </div>
           <div className="mt-4">
             <p className="text-sm text-gray-600 dark:text-neutral-400">
