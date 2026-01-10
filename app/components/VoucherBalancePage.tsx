@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { ErrorAlert } from "./error";
 import Balance from "./Balance";
@@ -33,7 +34,6 @@ export function VoucherBalancePage() {
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [globalError, setGlobalError] = useState<string | null>(null);
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const refreshAbortControllerRef = useRef<AbortController | null>(null);
 
   const { accountData, connectWallet } = useWallet();
   const time = lastUpdated.toLocaleTimeString();
@@ -42,7 +42,7 @@ export function VoucherBalancePage() {
   /*                           FETCH REAL EUCLID DATA                            */
   /* -------------------------------------------------------------------------- */
 
-  const fetchRealBalances = async () => {
+  const fetchRealBalances = useCallback(async () => {
     if (!accountData.address) return;
 
     try {
@@ -72,7 +72,9 @@ export function VoucherBalancePage() {
         walletAddress: accountData.address,
       });
 
-      const balances = neuronRes.balances || [];
+      const balances =
+        neuronRes.cw_multicall?.smart_queries?.results?.[0]?.success
+          ?.balances || [];
 
       // 4️⃣ Group balances by chain_uid
       const grouped: Record<string, any[]> = {};
@@ -106,7 +108,7 @@ export function VoucherBalancePage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [accountData.address, accountData.chainId]);
 
   /* -------------------------------------------------------------------------- */
   /*                               AUTO REFRESH                                  */
@@ -126,7 +128,7 @@ export function VoucherBalancePage() {
         clearInterval(autoRefreshIntervalRef.current);
       }
     };
-  }, [accountData.address]);
+  }, [accountData.address, fetchRealBalances]);
 
   /* -------------------------------------------------------------------------- */
   /*                                STATS                                         */
