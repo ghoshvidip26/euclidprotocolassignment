@@ -12,62 +12,7 @@ import {
 } from "../lib/euclidClient";
 import { useWallet } from "../context/WalletAddress";
 
-const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
-
-const mockChainData = [
-  {
-    chain: "Ethereum",
-    chainId: 1,
-    status: "success" as const,
-    tokens: [
-      {
-        symbol: "EURC",
-        balance: "1,234.50",
-        decimals: 6,
-        usdValue: "1,234.50",
-      },
-      {
-        symbol: "USDC",
-        balance: "5,000.00",
-        decimals: 6,
-        usdValue: "5,000.00",
-      },
-    ],
-  },
-  {
-    chain: "Polygon",
-    chainId: 137,
-    status: "success" as const,
-    tokens: [
-      {
-        symbol: "EURC",
-        balance: "2,500.00",
-        decimals: 6,
-        usdValue: "2,500.00",
-      },
-      {
-        symbol: "USDC",
-        balance: "3,200.00",
-        decimals: 6,
-        usdValue: "3,200.00",
-      },
-    ],
-  },
-  {
-    chain: "Arbitrum",
-    chainId: 42161,
-    status: "success" as const,
-    tokens: [
-      { symbol: "EURC", balance: "800.25", decimals: 6, usdValue: "800.25" },
-      {
-        symbol: "USDC",
-        balance: "1,500.00",
-        decimals: 6,
-        usdValue: "1,500.00",
-      },
-    ],
-  },
-];
+const AUTO_REFRESH_INTERVAL = 30000;
 
 interface ChainData {
   chain: string;
@@ -83,151 +28,165 @@ interface ChainData {
 }
 
 export function VoucherBalancePage() {
-  const [chainData, setChainData] = useState<ChainData[]>(mockChainData);
+  const [chainData, setChainData] = useState<ChainData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [globalError, setGlobalError] = useState<string | null>(null);
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
-  const time = lastUpdated.toLocaleTimeString();
+
   const { accountData, connectWallet } = useWallet();
-  const func = async () => {
-    const [virtualBalanceAddress, evmChains] = await Promise.all([
-      getRouterState(),
-      getEvmChains(),
-    ]);
+  const time = lastUpdated.toLocaleTimeString();
 
-    const NEURON_CONTRACT = virtualBalanceAddress;
-    console.log(NEURON_CONTRACT);
+  /* -------------------------------------------------------------------------- */
+  /*                           FETCH REAL EUCLID DATA                            */
+  /* -------------------------------------------------------------------------- */
 
-    const res = await getUserBalancesOnNeuron({
-      neuronContractAddress: NEURON_CONTRACT, // 👈 MUST be euclid1...
-      userChainUid: evmChains.filter((chain) => chain.chain_uid),
-      walletAddress: accountData.address!,
-    });
+  const fetchRealBalances = async () => {
+    if (!accountData.address) return;
 
-    console.log(res);
-  };
-  func();
-
-  const fetchVoucherBalances = async (signal?: AbortSignal) => {
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setChainData(mockChainData);
+      setIsLoading(true);
       setGlobalError(null);
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        return;
+
+      // 1️⃣ Get router + chains
+      const [virtualBalanceAddress, evmChains] = await Promise.all([
+        getRouterState(),
+        getEvmChains(),
+      ]);
+
+      // 2️⃣ Determine user's origin chain
+      const walletChainId = accountData.chainId; // from wallet context
+      const userChain = evmChains.find(
+        (c) => c.chain_id === String(walletChainId)
+      );
+
+      if (!userChain) {
+        throw new Error("Unsupported wallet chain");
       }
 
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to fetch balances";
-      setGlobalError(errorMessage);
-    }
-  };
+      // 3️⃣ Fetch ALL balances from Neuron
+      const neuronRes = await getUserBalancesOnNeuron({
+        neuronContractAddress: virtualBalanceAddress,
+        userChainUid: userChain.chain_uid,
+        walletAddress: accountData.address,
+      });
 
-  const handleRefresh = async () => {
-    if (refreshAbortControllerRef.current) {
-      refreshAbortControllerRef.current.abort();
-    }
+      const balances = neuronRes.balances || [];
 
-    setIsLoading(true);
-    refreshAbortControllerRef.current = new AbortController();
+      // 4️⃣ Group balances by chain_uid
+      const grouped: Record<string, any[]> = {};
+      balances.forEach((b: any) => {
+        if (!grouped[b.chain_uid]) grouped[b.chain_uid] = [];
+        grouped[b.chain_uid].push(b);
+      });
 
-    try {
-      await fetchVoucherBalances(refreshAbortControllerRef.current.signal);
+      // 5️⃣ Convert into UI format
+      const realChainData: ChainData[] = evmChains.map((chain) => {
+        const tokens = grouped[chain.chain_uid] || [];
+
+        return {
+          chain: chain.display_name,
+          chainId: Number(chain.chain_id),
+          status: "success",
+          tokens: tokens.map((t) => ({
+            symbol: t.denom,
+            balance: t.amount,
+            decimals: 18, // you can later fetch real decimals
+            usdValue: "0", // hook a price feed later
+          })),
+        };
+      });
+
+      setChainData(realChainData);
       setLastUpdated(new Date());
+    } catch (err) {
+      console.error("Failed to fetch balances:", err);
+      setGlobalError("Failed to fetch voucher balances");
     } finally {
       setIsLoading(false);
     }
   };
 
+  /* -------------------------------------------------------------------------- */
+  /*                               AUTO REFRESH                                  */
+  /* -------------------------------------------------------------------------- */
+
   useEffect(() => {
-    handleRefresh();
+    if (!accountData.address) return;
+
+    fetchRealBalances();
 
     autoRefreshIntervalRef.current = setInterval(() => {
-      fetchVoucherBalances().then(() => setLastUpdated(new Date()));
+      fetchRealBalances();
     }, AUTO_REFRESH_INTERVAL);
 
     return () => {
       if (autoRefreshIntervalRef.current) {
         clearInterval(autoRefreshIntervalRef.current);
       }
-      if (refreshAbortControllerRef.current) {
-        refreshAbortControllerRef.current.abort();
-      }
     };
-  }, []);
+  }, [accountData.address]);
+
+  /* -------------------------------------------------------------------------- */
+  /*                                STATS                                         */
+  /* -------------------------------------------------------------------------- */
 
   const calculateStats = () => {
     const allTokens = new Set<string>();
     let totalBalance = 0;
 
     chainData.forEach((chain) => {
-      if (chain.status === "success") {
-        chain.tokens.forEach((token) => {
-          allTokens.add(token.symbol);
-          totalBalance += Number.parseFloat(token.usdValue.replace(/,/g, ""));
-        });
-      }
+      chain.tokens.forEach((token) => {
+        allTokens.add(token.symbol);
+        totalBalance += Number(token.usdValue || 0);
+      });
     });
 
     return {
       totalBalance,
       totalTokens: allTokens.size,
-      activeChains: chainData.filter((c) => c.status === "success").length,
+      activeChains: chainData.filter((c) => c.tokens.length > 0).length,
     };
   };
 
   const stats = calculateStats();
 
+  /* -------------------------------------------------------------------------- */
+  /*                                   UI                                         */
+  /* -------------------------------------------------------------------------- */
+
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-neutral-900">
       {/* Header */}
       <div className="border-b border-gray-200 dark:border-neutral-700 bg-white dark:bg-neutral-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                Voucher Balances
-              </h1>
-              <p className="text-gray-600 dark:text-neutral-400 mt-1">
-                View your balances across all supported chains
-              </p>
-            </div>
-            <button
-              onClick={handleRefresh}
-              disabled={isLoading}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
-            >
-              <RefreshCw
-                className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
-              />
-              {isLoading ? "Refreshing..." : "Refresh"}
-            </button>
+        <div className="max-w-7xl mx-auto px-4 py-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold">Voucher Balances</h1>
+            <p className="text-gray-500">Cross-chain balances via Euclid</p>
+            <p className="text-sm mt-1">Last updated: {time}</p>
+          </div>
 
-            {!accountData.address && (
-              <button
-                onClick={connectWallet}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
-              >
-                Connect Wallet
-              </button>
-            )}
-          </div>
-          <div className="mt-4">
-            <p className="text-sm text-gray-600 dark:text-neutral-400">
-              Last updated: {time}
-              <span className="ml-2 text-xs text-gray-500 dark:text-neutral-500">
-                (Auto-refresh every {AUTO_REFRESH_INTERVAL / 1000}s)
-              </span>
-            </p>
-          </div>
+          {!accountData.address ? (
+            <button
+              onClick={connectWallet}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg"
+            >
+              Connect Wallet
+            </button>
+          ) : (
+            <button
+              onClick={fetchRealBalances}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg"
+            >
+              <RefreshCw className={isLoading ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto p-8">
         {globalError && (
           <ErrorAlert
             message={globalError}
@@ -235,7 +194,6 @@ export function VoucherBalancePage() {
           />
         )}
 
-        {/* Summary Cards */}
         {!isLoading && (
           <SummaryCard
             totalBalance={stats.totalBalance}
@@ -244,30 +202,22 @@ export function VoucherBalancePage() {
           />
         )}
 
-        {/* Chain-Grouped Balances */}
-        <div className="mt-8">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
-            Balances by Chain
-          </h2>
-          <div className="space-y-4">
-            {chainData.length === 0 ? (
-              <div className="text-center py-12 text-gray-500 dark:text-neutral-400">
-                No voucher balances found. Please check your address and try
-                again.
-              </div>
-            ) : (
-              chainData.map((chain) => (
-                <Balance
-                  key={chain.chainId}
-                  chain={chain.chain}
-                  chainId={chain.chainId}
-                  status={chain.status}
-                  tokens={chain.tokens}
-                  errorMessage={chain.errorMessage}
-                />
-              ))
-            )}
-          </div>
+        <div className="mt-8 space-y-4">
+          {chainData.length === 0 ? (
+            <div className="text-center text-gray-500">
+              No voucher balances found
+            </div>
+          ) : (
+            chainData.map((chain) => (
+              <Balance
+                key={chain.chainId}
+                chain={chain.chain}
+                chainId={chain.chainId}
+                status={chain.status}
+                tokens={chain.tokens}
+              />
+            ))
+          )}
         </div>
       </div>
     </main>

@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   ReactNode,
 } from "react";
 import { ethers } from "ethers";
@@ -27,35 +28,46 @@ interface WalletContextType {
   connectWallet: () => Promise<void>;
 }
 
-export const WalletContext = createContext<WalletContextType>({
-  accountData: {},
-  connectWallet: async () => {},
-});
+export const WalletContext = createContext<WalletContextType | undefined>(
+  undefined
+);
 
 export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [accountData, setAccountData] = useState<AccountType>({});
   console.log("Account Data: ", accountData);
   const connectWallet = useCallback(async () => {
-    if (!window.ethereum) {
+    if (typeof window === "undefined" || !window.ethereum) {
       alert("MetaMask not installed");
       return;
     }
 
     try {
-      await window.ethereum.request({
-        method: "wallet_requestPermissions",
-        params: [{ eth_accounts: {} }],
-      });
-
       const accounts = await window.ethereum.request({
         method: "eth_requestAccounts",
       });
 
-      if (accounts.length === 0) {
-        console.log("No authorized accounts found");
-        return;
-      }
+      if (accounts.length > 0) {
+        const address = accounts[0];
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const balance = await provider.getBalance(address);
+        const network = await provider.getNetwork();
 
+        setAccountData({
+          address,
+          balance: ethers.formatEther(balance),
+          chainId: network.chainId.toString(),
+          network: network.name,
+        });
+
+        console.log("Connected to MetaMask:", address);
+      }
+    } catch (error) {
+      console.error("Error connecting to MetaMask:", error);
+    }
+  }, []);
+
+  const updateAccount = useCallback(async (accounts: string[]) => {
+    if (accounts.length > 0) {
       const address = accounts[0];
       const provider = new ethers.BrowserProvider(window.ethereum);
       const balance = await provider.getBalance(address);
@@ -67,12 +79,21 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
         chainId: network.chainId.toString(),
         network: network.name,
       });
-
-      console.log("Connected to MetaMask:", address);
-    } catch (error) {
-      console.error("Error connecting to MetaMask:", error);
+    } else {
+      setAccountData({});
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.ethereum) {
+      window.ethereum.on("accountsChanged", updateAccount);
+      window.ethereum.on("chainChanged", () => window.location.reload());
+
+      return () => {
+        window.ethereum.removeListener("accountsChanged", updateAccount);
+      };
+    }
+  }, [updateAccount]);
 
   return (
     <WalletContext.Provider value={{ accountData, connectWallet }}>
@@ -82,7 +103,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
 };
 export const useWallet = () => {
   const context = useContext(WalletContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error("useWallet must be used within a WalletProvider");
   }
   return context;
