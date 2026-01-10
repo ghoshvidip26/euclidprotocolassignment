@@ -1,4 +1,4 @@
-import { GraphQLClient } from "graphql-request";
+import { GraphQLClient } from "@euclidprotocol/graphql-codegen/node_modules/graphql-request";
 import { getSdk } from "@euclidprotocol/graphql-codegen/dist/src/node";
 
 const GQL_ENDPOINT = "https://testnet.api.euclidprotocol.com/graphql";
